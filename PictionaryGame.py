@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QFileDialog, QDockWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox
+from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QFileDialog, QDockWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox, QLineEdit
 from PyQt6.QtGui import QIcon, QPainter, QPen, QAction, QPixmap, QFont
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 import sys
@@ -73,6 +73,8 @@ class PictionaryGame(QMainWindow):
         # set window title
         self.setWindowTitle("Pictionary Game")
 
+        self.self_obj = self # create an instance of itself
+
         self.startDetail = None # set word window close
 
         # set the windows dimensions
@@ -103,6 +105,7 @@ class PictionaryGame(QMainWindow):
         mainMenu = self.menuBar()  # create a menu bar
         mainMenu.setNativeMenuBar(False)
         fileMenu = mainMenu.addMenu(" File")
+        helpMenu = mainMenu.addMenu((" Help"))
         brushSizeMenu = mainMenu.addMenu(" Brush Size")
         brushColorMenu = mainMenu.addMenu(" Brush Colour")
 
@@ -117,6 +120,11 @@ class PictionaryGame(QMainWindow):
         clearAction.setShortcut("Ctrl+C")
         fileMenu.addAction(clearAction)
         clearAction.triggered.connect(self.clear)
+
+        # rules
+        ruleAction = QAction(QIcon("./icons/help.png"), "Rule", self)
+        helpMenu.addAction(ruleAction)
+        ruleAction.triggered.connect(self.rule)
 
         # brush thickness
         threepxAction = QAction(QIcon("./icons/threepx.png"), "3px", self)
@@ -186,7 +194,6 @@ class PictionaryGame(QMainWindow):
         start = QPushButton("Start")
         self.vbdock.addWidget(start) #change
         start.clicked.connect(self.startGame)
-        self.vbdock.addWidget(QPushButton("Skip Turn"))
 
         #Setting colour of dock to gray
         playerInfo.setAutoFillBackground(True)
@@ -244,6 +251,19 @@ class PictionaryGame(QMainWindow):
         self.image.fill(Qt.GlobalColor.white)  # fill the image with white
         self.update()  # call the update method of the widget which calls the paintEvent of this class
 
+    def rule(self): # show the rules
+        ruleBox = QMessageBox()
+        ruleBox.setWindowIcon(QIcon("./icons/rule.png"))
+        ruleBox.setIcon(QMessageBox.Icon.Information)
+        ruleBox.setWindowTitle("Rules")
+        ruleBox.setText("Rules")
+        ruleBox.setInformativeText("1. First to reach 5 points to win\n\n"
+                                   "2. When Guesser get the answer, 2 points for guesser and 1 point for drawer\n\n"
+                                   "3. Only 3 chances for guesser and drawer can skip turn")
+        ruleBox.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+        ruleBox.exec()
+
     def threepx(self):  # the brush size is set to 3
         self.brushSize = 3
 
@@ -274,8 +294,7 @@ class PictionaryGame(QMainWindow):
     def startGame(self):
         # check if the second window is already open
         if self.startDetail is None:
-            self.startDetail = StartDetail()
-            self.startDetail.modeChanged.connect(self.onModeChanged)
+            self.startDetail = StartDetail(self.self_obj)
             self.startDetail.show()
 
         # bring the window to the front if it's already open
@@ -283,10 +302,6 @@ class PictionaryGame(QMainWindow):
             self.startDetail.show()
         else:
             self.startDetail.raise_()
-
-    def onModeChanged(self, new_mode):
-        game_center.mode = new_mode
-        self.updateUI()
 
     #Get a random word from the list read from file
     def getWord(self):
@@ -321,9 +336,16 @@ class PictionaryGame(QMainWindow):
 class StartDetail(QMainWindow):
     modeChanged = pyqtSignal(str) # signal
 
-    def __init__(self):
+    def __init__(self, pictionary):
         super().__init__()
+        self.p = pictionary
+        self.modeChanged.connect(self.p.updateUI)
         self.setWindowTitle("Start Detail")
+
+        # set the icon
+        self.setWindowIcon(QIcon("./icons/start.png"))
+
+        self.self_obj = self
 
         # centralize my widget
         central = QWidget()
@@ -351,55 +373,230 @@ class StartDetail(QMainWindow):
     def easy(self):
         self.setupGame("Easy")
 
-
     def hard(self):
         self.setupGame("Hard")
 
     def setupGame(self, difficulty):
-        newMode = difficulty.lower()
+        game_center.mode = difficulty.lower()
         game_center.turn = 1
         game_center.score1 = 0
         game_center.score2 = 0
-        self.modeChanged.emit(newMode)  # connect the signal
+        self.modeChanged.emit(game_center.mode)  # connect the signal
 
-        if not game_center.isGameActive:
-            self.wordDetail = WordDisplay()
+        if not game_center.isGameActive: # open the word window and answer window
+            self.wordDetail = WordDisplay(self.p)
             self.wordDetail.show()
+            self.answerBox = AnsSheet(self.wordDetail, self.p, self.self_obj)
+            self.answerBox.show()
             game_center.isGameActive = True
 
         self.close()
 
+class WordDisplay(QMainWindow): # class to display the word for drawer
+    turnChange = pyqtSignal(int) # signal
 
-class WordDisplay(QMainWindow):
-    def __init__(self):
+    def __init__(self, pictionary):
         super().__init__()
+
+        self.p = pictionary # assign class
+        self.turnChange.connect(self.p.updateUI) # connect method
+
         self.setWindowTitle("Word Detail")
+
+        # set the icon
+        self.setWindowIcon(QIcon("./icons/word.png"))
+
         # centralize my widget
         central = QWidget()
         self.setCentralWidget(central)
 
+        self.move(200,400) # generate on left
+
         layout = QVBoxLayout()
+        self.updatePlayerInfo()
+
+        self.player = QLabel(f"{self.activePlayer} Turn, please get your word and draw") # show current player who need to draw
+        self.warning = QLabel(f"{self.warningPlayer} is not allow to watch!!")
+        self.warning.setStyleSheet("color: red;")
+        self.p = PictionaryGame()
+        self.p.getList()  # get the list
+        currentWord = self.p.getWord()
+        self.wordLabel = QLabel(f"Current Word: {currentWord}")
+        skipTurn = QPushButton("Skip Turn")
+        skipTurn.clicked.connect(self.nextTurn)
+
+        layout.addWidget(self.player)
+        layout.addSpacing(10)
+        layout.addWidget(self.warning)
+        layout.addSpacing(30)
+        layout.addWidget(self.wordLabel)
+        layout.addSpacing(10)
+        layout.addWidget(skipTurn)
+        layout.addStretch(1)
+
+        central.setLayout(layout)
+
+    def nextTurn(self):
+        game_center.turn += 1
+        self.turnChange.emit(game_center.turn)
+        self.updateUI()
+        print(game_center.turn)
+
+    def updatePlayerInfo(self):
         if  game_center.turn % 2 == 1:
             self.activePlayer = "Player 1"
             self.warningPlayer = "Player 2"
         else:
             self.activePlayer = "Player 2"
             self.warningPlayer = "Player 1"
-        player = QLabel(f"{self.activePlayer} Turn, please get your word and draw") # show current player who need to draw
-        warning = QLabel(f"{self.warningPlayer} is not allow to watch!!")
-        warning.setStyleSheet("color: red;")
-        layout.addWidget(player)
+
+    def updateUI(self):
+        self.updatePlayerInfo()
+        self.player.setText(f"{self.activePlayer} Turn, please get your word and draw")  # show current player who need to draw
+        self.warning.setText(f"{self.warningPlayer} is not allow to watch!!")
+        newWord = self.p.getWord()
+        self.wordLabel.setText(f"Current Word: {newWord}")
+
+class AnsSheet(QMainWindow): # class for the player to answer
+    turnChange = pyqtSignal(int)
+
+    def __init__(self, word_display, pictionary, start):
+        super().__init__()
+        self.w = word_display # class WordDisplay
+        self.p = pictionary # class PictionaryGame
+        self.s = start # class StartDetail
+        self.turnChange.connect(self.w.updateUI) # connect signal to method
+        self.turnChange.connect(self.p.updateUI)
+
+        self.setWindowTitle("Answer")
+
+        # set the icon
+        self.setWindowIcon(QIcon("./icons/answer.png"))
+
+        # centralize my widget
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        self.move(1400,400) # generate on right
+
+        layout = QVBoxLayout()
+
+        self.answerBox = QLineEdit()
+        self.answerBox.setPlaceholderText("Enter your answer")
+
+        submitButton = QPushButton("submit")
+        submitButton.clicked.connect(self.ansChecking)
+
+        self.chances = 3
+        self.chanceLabel = QLabel(f"Chances: {self.chances}")
+
+        self.ansCorrection = ""
+        self.correctionLabel = QLabel(f"{self.ansCorrection}")
+
+        layout.addWidget(self.answerBox)
+        layout.addWidget(submitButton)
         layout.addSpacing(10)
-        layout.addWidget(warning)
-        layout.addSpacing(30)
-        p = PictionaryGame()
-        p.getList() # get the list
-        currentWord = p.getWord()
-        wordLabel = QLabel(f"Current Word: {currentWord}")
-        layout.addWidget(wordLabel)
-        layout.addStretch(1)
+        layout.addWidget(self.chanceLabel)
+        layout.addWidget(self.correctionLabel)
 
         central.setLayout(layout)
+
+    def ansChecking(self):
+        if self.answerBox.text().lower() == game_center.word.lower():
+            self.ansCorrect()
+            self.victoryChecking()
+            self.nextTurn()
+            self.answerBox.clear()
+            self.chances = 3
+            self.chanceLabel.setText(f"Chances: {self.chances}")
+            self.ansCorrection = "Correct Answer"
+            self.correctionLabel.setText(f"{self.ansCorrection}")
+            self.correctionLabel.setStyleSheet("color: green;")
+        else:
+            if self.chances != 0:
+                self.chances -=1
+                self.chanceLabel.setText(f"Chances: {self.chances}")
+                self.answerBox.clear()
+                self.ansCorrection = "Wrong Answer"
+                self.correctionLabel.setText(f"{self.ansCorrection}")
+                self.correctionLabel.setStyleSheet("color: red;")
+            else:
+                self.chances = 3
+                self.chanceLabel.setText(f"Chances: {self.chances}")
+                self.nextTurn()
+                self.answerBox.clear()
+                self.ansCorrection = "No chances"
+                self.correctionLabel.setText(f"{self.ansCorrection}")
+                self.correctionLabel.setStyleSheet("color: red;")
+
+    def ansCorrect(self):
+        if game_center.turn % 2 == 1: # drawing player get 1 mark, answer player get 2 marks
+            game_center.score1 += 1
+            game_center.score2 += 2
+        else:
+            game_center.score1 += 2
+            game_center.score2 += 1
+
+    def nextTurn(self):
+        game_center.turn += 1
+        self.turnChange.emit(game_center.turn)
+        print(game_center.turn)
+
+    def victoryChecking(self):
+        if game_center.score1 >= 5:
+            self.v1 = Victory("Player 1", self.p)
+            self.w.close()
+            self.close()
+            self.v1.show()
+        elif game_center.score2 >= 5:
+            self.v2 = Victory("Player 2", self.p)
+            self.w.close()
+            self.close()
+            self.v2.show()
+
+class Victory(QMainWindow):
+    def __init__(self, winner, pictionary):
+        super().__init__()
+        self.p = pictionary
+
+        self.setWindowTitle("Victory")
+
+        # set the icon
+        self.setWindowIcon(QIcon("./icons/victory.png"))
+
+        # centralize my widget
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        layout = QVBoxLayout()
+
+        victory = QLabel(f"{winner} Win")
+
+        restart = QPushButton("Restart")
+        restart.setFixedSize(200, 100)
+        restart.setStyleSheet("font-size: 16px;")
+        restart.clicked.connect(self.restart)
+
+        exit = QPushButton("Exit")
+        exit.setFixedSize(200, 100)
+        exit.setStyleSheet("font-size: 16px;")
+        exit.clicked.connect(self.exit)
+
+        layout.addWidget(victory)
+        layout.addSpacing(20)
+        layout.addWidget(restart)
+        layout.addWidget(exit)
+
+        central.setLayout(layout)
+
+    def restart(self):
+        self.s = StartDetail(self.p)
+        self.s.show()
+        self.close()
+
+    def exit(self):
+        self.p.close()
+        self.close()
 
 if __name__ == "__main__":
     # predefine value
