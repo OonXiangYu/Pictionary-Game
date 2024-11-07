@@ -1,18 +1,17 @@
 from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QFileDialog, QDockWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox, QLineEdit
 from PyQt6.QtGui import QIcon, QPainter, QPen, QAction, QPixmap, QFont
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QRect
 import sys
 import csv, random
 
 # constructor, getter, setter
 class GameCenter:
-    def __init__(self, mode, word, turn, score1, score2, isGameActive):
+    def __init__(self, mode, word, turn, score1, score2):
         self._mode = mode
         self._word = word
         self._turn = turn
         self._score1 = score1
         self._score2 = score2
-        self._isGameActive = isGameActive
 
     @property
     def mode(self):
@@ -54,14 +53,6 @@ class GameCenter:
     def score2(self, new_score):
         self._score2 = new_score
 
-    @property
-    def isGameActive(self):
-        return self._isGameActive
-
-    @isGameActive.setter
-    def isGameActive(self, active_status):
-        self._isGameActive = active_status
-
 class PictionaryGame(QMainWindow):
     '''
     Painting Application class
@@ -97,17 +88,21 @@ class PictionaryGame(QMainWindow):
         self.drawing = False
         self.brushSize = 3
         self.brushColor = Qt.GlobalColor.black
+        self.drawingMode = "free"
 
-        # reference to last point recorded by mouse
+        # reference to start and last point recorded by mouse
+        self.startPoint = QPoint()
         self.lastPoint = QPoint()
 
         # set up menus
         mainMenu = self.menuBar()  # create a menu bar
         mainMenu.setNativeMenuBar(False)
+        mainMenu.setStyleSheet("QMenuBar { background-color: white; }")
         fileMenu = mainMenu.addMenu(" File")
         helpMenu = mainMenu.addMenu((" Help"))
         brushSizeMenu = mainMenu.addMenu(" Brush Size")
         brushColorMenu = mainMenu.addMenu(" Brush Colour")
+        shapeMenu = mainMenu.addMenu(" Shape")
 
         # save menu item
         saveAction = QAction(QIcon("./icons/save.png"), "Save", self)
@@ -121,8 +116,21 @@ class PictionaryGame(QMainWindow):
         fileMenu.addAction(clearAction)
         clearAction.triggered.connect(self.clear)
 
+        # open
+        openAction = QAction(QIcon("./icons/open.png"), "Open", self)
+        openAction.setShortcut("Ctrl+O")
+        fileMenu.addAction(openAction)
+        openAction.triggered.connect(self.open)
+
+        # exit
+        exitAction = QAction(QIcon("./icons/exit.png"), "Exit", self)
+        exitAction.setShortcut("Ctrl+Z")
+        fileMenu.addAction(exitAction)
+        exitAction.triggered.connect(self.exit)
+
         # rules
         ruleAction = QAction(QIcon("./icons/help.png"), "Rule", self)
+        ruleAction.setShortcut("Ctrl+H")
         helpMenu.addAction(ruleAction)
         ruleAction.triggered.connect(self.rule)
 
@@ -168,6 +176,28 @@ class PictionaryGame(QMainWindow):
         brushColorMenu.addAction(yellowAction);
         yellowAction.triggered.connect(self.yellow)
 
+        whiteAction = QAction(QIcon("./icons/white.png"), "White", self)
+        whiteAction.setShortcut("Ctrl+W")
+        brushColorMenu.addAction(whiteAction);
+        whiteAction.triggered.connect(self.white)
+
+        # shape
+        normalAction = QAction(QIcon("./icons/paint-brush.png"), "Normal", self)
+        shapeMenu.addAction(normalAction);
+        normalAction.triggered.connect(lambda: self.setMode("free"))
+
+        fillAction = QAction(QIcon("./icons/fill.png"), "Fill Background", self)
+        shapeMenu.addAction(fillAction);
+        fillAction.triggered.connect(lambda: self.fillCanvas())
+
+        rectangleAction = QAction(QIcon("./icons/rectangle.png"), "Rectangle", self)
+        shapeMenu.addAction(rectangleAction);
+        rectangleAction.triggered.connect(lambda: self.setMode("rectangle"))
+
+        circleAction = QAction(QIcon("./icons/circle.png"), "Circle", self)
+        shapeMenu.addAction(circleAction);
+        circleAction.triggered.connect(lambda: self.setMode("circle"))
+
         # Side Dock for player
         self.dockInfo = QDockWidget()
         self.dockInfo.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
@@ -210,31 +240,40 @@ class PictionaryGame(QMainWindow):
         self.score2Label.setText(f"Player 2: {game_center.score2}")
         self.modeLabel.setText(f"Mode : {game_center.mode}")
 
+    def setMode(self, mode): # show drawing mode
+        self.drawingMode = mode
+        print(f"Mode: {mode}")
+
     # event handlers
     def mousePressEvent(self, event):  # when the mouse is pressed
         if event.button() == Qt.MouseButton.LeftButton:  # if the pressed button is the left button
             self.drawing = True  # enter drawing mode
+            self.startPoint = event.pos()
             self.lastPoint = event.pos()  # save the location of the mouse press as the lastPoint
-            print(self.lastPoint)  # print the lastPoint for debugging purposes
 
     def mouseMoveEvent(self, event):  # when the mouse is moved
-        if self.drawing:
+        if self.drawing and self.drawingMode == "free":
             painter = QPainter(self.image)  # object which allows drawing to take place on an image
             # allows the selection of brush colour, brish size, line type, cap type, join type.
             painter.setPen(QPen(self.brushColor, self.brushSize, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(self.lastPoint, event.pos())  # draw a line from the point of the oroiginal press to the point to where the mouse was dragged to
-            self.lastPoint = event.pos()  # set the last point to refer to the point we have just moved to, this helps when drawing the next line segment
+            painter.drawLine(self.startPoint, event.pos())  # draw a line from the point of the oroiginal press to the point to where the mouse was dragged to
+            self.startPoint = event.pos()  # set the last point to refer to the point we have just moved to, this helps when drawing the next line segment
             self.update()  # call the update method of the widget which calls the paintEvent of this class
 
     def mouseReleaseEvent(self, event):  # when the mouse is released
         if event.button() == Qt.MouseButton.LeftButton:  # if the released button is the left button
             self.drawing = False  # exit drawing mode
+            self.lastPoint = event.pos()
+            if self.drawingMode == "rectangle":
+                self.rectangle()
+            elif self.drawingMode == "circle":
+                self.circle()
 
     # paint events
     def paintEvent(self, event):
         # you should only create and use the QPainter object in this method, it should be a local variable
         canvasPainter = QPainter(self)  # create a new QPainter object
-        canvasPainter.drawPixmap(QPoint(), self.image)  # draw the image
+        canvasPainter.drawPixmap(self.rect(), self.image, self.image.rect())  # draw the image
 
     # resize event - this function is called
     def resizeEvent(self, event):
@@ -251,6 +290,24 @@ class PictionaryGame(QMainWindow):
         self.image.fill(Qt.GlobalColor.white)  # fill the image with white
         self.update()  # call the update method of the widget which calls the paintEvent of this class
 
+    # open a file
+    def open(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "Open Image", "","PNG(*.png);;JPG(*.jpg *.jpeg);;All Files (*.*)")
+        if filePath == "":  # if not file is selected exit
+            return
+        with open(filePath, 'rb') as f:  # open the file in binary mode for reading
+            content = f.read()  # read the file
+        self.image.loadFromData(content)  # load the data into the file
+        width = self.width()  # get the width of the current QImage in your application
+        height = self.height()  # get the height of the current QImage in your application
+        self.image = self.image.scaled(width, height)  # scale the image from file and put it in your QImage
+        self.update()  # call the update method of the widget which calls the paintEvent of this class
+
+    # exit
+    def exit(self):
+        QApplication.instance().closeAllWindows()
+
+
     def rule(self): # show the rules
         ruleBox = QMessageBox()
         ruleBox.setWindowIcon(QIcon("./icons/rule.png"))
@@ -259,7 +316,8 @@ class PictionaryGame(QMainWindow):
         ruleBox.setText("Rules")
         ruleBox.setInformativeText("1. First to reach 5 points to win\n\n"
                                    "2. When Guesser get the answer, 2 points for guesser and 1 point for drawer\n\n"
-                                   "3. Only 3 chances for guesser and drawer can skip turn")
+                                   "3. Only 3 chances for guesser to guess \n\n"
+                                   "4. Drawer can skip turn anytime")
         ruleBox.setStandardButtons(QMessageBox.StandardButton.Ok)
 
         ruleBox.exec()
@@ -279,9 +337,6 @@ class PictionaryGame(QMainWindow):
     def black(self):  # the brush color is set to black
         self.brushColor = Qt.GlobalColor.black
 
-    def black(self):
-        self.brushColor = Qt.GlobalColor.black
-
     def red(self):
         self.brushColor = Qt.GlobalColor.red
 
@@ -290,6 +345,28 @@ class PictionaryGame(QMainWindow):
 
     def yellow(self):
         self.brushColor = Qt.GlobalColor.yellow
+
+    def white(self):
+        self.brushColor = Qt.GlobalColor.white
+
+    def rectangle(self): # drawing rectangle
+        painter = QPainter(self.image)
+        painter.setPen(QPen(self.brushColor, self.brushSize, Qt.PenStyle.SolidLine))
+        rect = QRect(self.startPoint, self.lastPoint)
+        painter.drawRect(rect)
+        self.update()
+
+    def circle(self): # drawing circle
+        painter = QPainter(self.image)
+        painter.setPen(QPen(self.brushColor, self.brushSize, Qt.PenStyle.SolidLine))
+        radius = (self.startPoint - self.lastPoint).manhattanLength() // 2
+        center = (self.startPoint + self.lastPoint) / 2
+        painter.drawEllipse(center, radius, radius)
+        self.update()
+
+    def fillCanvas(self): # fill whole background
+        self.image.fill(self.brushColor)
+        self.update()
 
     def startGame(self):
         # check if the second window is already open
@@ -319,19 +396,6 @@ class PictionaryGame(QMainWindow):
                 self.wordList = row
                 line_count += 1
 
-    # open a file
-    def open(self):
-        filePath, _ = QFileDialog.getOpenFileName(self, "Open Image", "","PNG(*.png);;JPG(*.jpg *.jpeg);;All Files (*.*)")
-        if filePath == "":  # if not file is selected exit
-            return
-        with open(filePath, 'rb') as f:  # open the file in binary mode for reading
-            content = f.read()  # read the file
-        self.image.loadFromData(content)  # load the data into the file
-        width = self.width()  # get the width of the current QImage in your application
-        height = self.height()  # get the height of the current QImage in your application
-        self.image = self.image.scaled(width, height)  # scale the image from file and put it in your QImage
-        self.update()  # call the update method of the widget which calls the paintEvent of this class
-
 # window then user click start button
 class StartDetail(QMainWindow):
     modeChanged = pyqtSignal(str) # signal
@@ -341,6 +405,8 @@ class StartDetail(QMainWindow):
         self.p = pictionary
         self.modeChanged.connect(self.p.updateUI)
         self.setWindowTitle("Start Detail")
+
+        font = QFont("Arial", 24, QFont.Weight.Bold) # font style
 
         # set the icon
         self.setWindowIcon(QIcon("./icons/start.png"))
@@ -354,11 +420,11 @@ class StartDetail(QMainWindow):
         # setting button
         easy = QPushButton("Easy")
         easy.setFixedSize(200,100)
-        easy.setStyleSheet("font-size: 16px;")
+        easy.setFont(font)
         easy.clicked.connect(self.easy)
         hard = QPushButton("Hard")
         hard.setFixedSize(200, 100)
-        hard.setStyleSheet("font-size: 16px;")
+        hard.setFont(font)
         hard.clicked.connect(self.hard)
 
         layout = QVBoxLayout()
@@ -383,12 +449,10 @@ class StartDetail(QMainWindow):
         game_center.score2 = 0
         self.modeChanged.emit(game_center.mode)  # connect the signal
 
-        if not game_center.isGameActive: # open the word window and answer window
-            self.wordDetail = WordDisplay(self.p)
-            self.wordDetail.show()
-            self.answerBox = AnsSheet(self.wordDetail, self.p, self.self_obj)
-            self.answerBox.show()
-            game_center.isGameActive = True
+        self.wordDetail = WordDisplay(self.p)
+        self.wordDetail.show()
+        self.answerBox = AnsSheet(self.wordDetail, self.p, self.self_obj)
+        self.answerBox.show()
 
         self.close()
 
@@ -400,6 +464,9 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
 
         self.p = pictionary # assign class
         self.turnChange.connect(self.p.updateUI) # connect method
+
+        font1 = QFont("Comic Sans MS", 15) # font style
+        font2 = QFont("Courier New", 12)  # font style
 
         self.setWindowTitle("Word Detail")
 
@@ -416,12 +483,15 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
         self.updatePlayerInfo()
 
         self.player = QLabel(f"{self.activePlayer} Turn, please get your word and draw") # show current player who need to draw
+        self.player.setFont(font1)
         self.warning = QLabel(f"{self.warningPlayer} is not allow to watch!!")
+        self.warning.setFont(font1)
         self.warning.setStyleSheet("color: red;")
         self.p = PictionaryGame()
         self.p.getList()  # get the list
         currentWord = self.p.getWord()
         self.wordLabel = QLabel(f"Current Word: {currentWord}")
+        self.wordLabel.setFont(font2)
         skipTurn = QPushButton("Skip Turn")
         skipTurn.clicked.connect(self.nextTurn)
 
@@ -564,6 +634,8 @@ class Victory(QMainWindow):
         # set the icon
         self.setWindowIcon(QIcon("./icons/victory.png"))
 
+        font = QFont("Comic Sans MS", 18) # font style
+
         # centralize my widget
         central = QWidget()
         self.setCentralWidget(central)
@@ -571,6 +643,7 @@ class Victory(QMainWindow):
         layout = QVBoxLayout()
 
         victory = QLabel(f"{winner} Win")
+        victory.setFont(font)
 
         restart = QPushButton("Restart")
         restart.setFixedSize(200, 100)
@@ -600,7 +673,7 @@ class Victory(QMainWindow):
 
 if __name__ == "__main__":
     # predefine value
-    game_center = GameCenter(mode="Waiting to Start", word="", turn=0, score1=0, score2=0, isGameActive=False)
+    game_center = GameCenter(mode="Waiting to Start", word="", turn=0, score1=0, score2=0)
 
     app = QApplication(sys.argv)
     window = PictionaryGame()
