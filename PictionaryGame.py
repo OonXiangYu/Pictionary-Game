@@ -1,4 +1,5 @@
-from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QFileDialog, QDockWidget, QPushButton, QVBoxLayout, QLabel, QMessageBox, QLineEdit
+from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QFileDialog, QDockWidget, QPushButton, QVBoxLayout, \
+    QLabel, QMessageBox, QLineEdit, QHBoxLayout
 from PyQt6.QtGui import QIcon, QPainter, QPen, QAction, QPixmap, QFont
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QRect
 import sys
@@ -480,6 +481,7 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
         self.move(200,400) # generate on left
 
         layout = QVBoxLayout()
+        hlayout = QHBoxLayout()
         self.updatePlayerInfo()
 
         self.player = QLabel(f"{self.activePlayer} Turn, please get your word and draw") # show current player who need to draw
@@ -489,11 +491,16 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
         self.warning.setStyleSheet("color: red;")
         self.p = PictionaryGame()
         self.p.getList()  # get the list
-        currentWord = self.p.getWord()
-        self.wordLabel = QLabel(f"Current Word: {currentWord}")
+        self.currentWord = self.p.getWord()
+        self.wordLabel = QLabel("Current Word: *********")
         self.wordLabel.setFont(font2)
+        self.showButton = QPushButton("Show Word") # method for hiding the word
+        self.showButton.pressed.connect(self.wordShow)
+        self.showButton.released.connect(self.wordHiding)
         skipTurn = QPushButton("Skip Turn")
         skipTurn.clicked.connect(self.nextTurn)
+        hlayout.addWidget(self.showButton)
+        hlayout.addWidget(skipTurn)
 
         layout.addWidget(self.player)
         layout.addSpacing(10)
@@ -501,10 +508,16 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
         layout.addSpacing(30)
         layout.addWidget(self.wordLabel)
         layout.addSpacing(10)
-        layout.addWidget(skipTurn)
+        layout.addLayout(hlayout)
         layout.addStretch(1)
 
         central.setLayout(layout)
+
+    def wordHiding(self):
+        self.wordLabel.setText("Current Word: *********")
+
+    def wordShow(self):
+        self.wordLabel.setText(f"Current Word: {self.currentWord}")
 
     def nextTurn(self):
         game_center.turn += 1
@@ -524,8 +537,8 @@ class WordDisplay(QMainWindow): # class to display the word for drawer
         self.updatePlayerInfo()
         self.player.setText(f"{self.activePlayer} Turn, please get your word and draw")  # show current player who need to draw
         self.warning.setText(f"{self.warningPlayer} is not allow to watch!!")
-        newWord = self.p.getWord()
-        self.wordLabel.setText(f"Current Word: {newWord}")
+        self.currentWord = self.p.getWord()
+        self.wordLabel.setText("Current Word: *********")
 
 class AnsSheet(QMainWindow): # class for the player to answer
     turnChange = pyqtSignal(int)
@@ -550,6 +563,7 @@ class AnsSheet(QMainWindow): # class for the player to answer
         self.move(1400,400) # generate on right
 
         layout = QVBoxLayout()
+        self.hlayout = QHBoxLayout()
 
         self.answerBox = QLineEdit()
         self.answerBox.setPlaceholderText("Enter your answer")
@@ -557,16 +571,23 @@ class AnsSheet(QMainWindow): # class for the player to answer
         submitButton = QPushButton("submit")
         submitButton.clicked.connect(self.ansChecking)
 
-        self.chances = 3
-        self.chanceLabel = QLabel(f"Chances: {self.chances}")
-
         self.ansCorrection = ""
         self.correctionLabel = QLabel(f"{self.ansCorrection}")
 
+        self.chances = 3
+        self.chanceLabel = QLabel("Chances: ")
+        self.hlayout.addWidget(self.chanceLabel)
+
+        # hp display
+        self.iconPath = "./icons/hp.png"
+        self.iconList = []
+        self.updateUI("")
+
         layout.addWidget(self.answerBox)
         layout.addWidget(submitButton)
+        layout.addSpacing(20)
+        layout.addLayout(self.hlayout)
         layout.addSpacing(10)
-        layout.addWidget(self.chanceLabel)
         layout.addWidget(self.correctionLabel)
 
         central.setLayout(layout)
@@ -578,26 +599,39 @@ class AnsSheet(QMainWindow): # class for the player to answer
             self.nextTurn()
             self.answerBox.clear()
             self.chances = 3
-            self.chanceLabel.setText(f"Chances: {self.chances}")
             self.ansCorrection = "Correct Answer"
-            self.correctionLabel.setText(f"{self.ansCorrection}")
-            self.correctionLabel.setStyleSheet("color: green;")
+            self.updateUI("color: green;")
         else:
             if self.chances != 0:
                 self.chances -=1
-                self.chanceLabel.setText(f"Chances: {self.chances}")
                 self.answerBox.clear()
                 self.ansCorrection = "Wrong Answer"
-                self.correctionLabel.setText(f"{self.ansCorrection}")
-                self.correctionLabel.setStyleSheet("color: red;")
+                self.updateUI("color: red;")
             else:
                 self.chances = 3
-                self.chanceLabel.setText(f"Chances: {self.chances}")
                 self.nextTurn()
                 self.answerBox.clear()
                 self.ansCorrection = "No chances"
-                self.correctionLabel.setText(f"{self.ansCorrection}")
-                self.correctionLabel.setStyleSheet("color: red;")
+                self.updateUI("color: red;")
+
+    def updateUI(self, color):
+        for icon in self.iconList: # clear list
+            self.hlayout.removeWidget(icon)
+            icon.deleteLater()
+        self.iconList.clear()
+
+        self.chanceLabel.setText("Chances: ")
+        self.correctionLabel.setText(f"{self.ansCorrection}")
+        self.correctionLabel.setStyleSheet(color)
+
+        for i in range(self.chances):
+            self.icon = QIcon(self.iconPath)
+            self.pixmap = self.icon.pixmap(20, 20)  # size
+
+            self.iconLabel = QLabel()
+            self.iconLabel.setPixmap(self.pixmap)
+            self.hlayout.addWidget(self.iconLabel)
+            self.iconList.append(self.iconLabel)
 
     def ansCorrect(self):
         if game_center.turn % 2 == 1: # drawing player get 1 mark, answer player get 2 marks
@@ -631,6 +665,14 @@ class Victory(QMainWindow):
 
         self.setWindowTitle("Victory")
 
+        # icon setting
+        iconPath = "./icons/win.png"
+        icon = QIcon(iconPath)
+        pixmap = icon.pixmap(30, 30)  # size
+
+        iconLabel = QLabel()
+        iconLabel.setPixmap(pixmap)
+
         # set the icon
         self.setWindowIcon(QIcon("./icons/victory.png"))
 
@@ -641,9 +683,13 @@ class Victory(QMainWindow):
         self.setCentralWidget(central)
 
         layout = QVBoxLayout()
+        hlayout = QHBoxLayout()
 
         victory = QLabel(f"{winner} Win")
         victory.setFont(font)
+
+        hlayout.addWidget(iconLabel)
+        hlayout.addWidget(victory)
 
         restart = QPushButton("Restart")
         restart.setFixedSize(200, 100)
@@ -655,7 +701,7 @@ class Victory(QMainWindow):
         exit.setStyleSheet("font-size: 16px;")
         exit.clicked.connect(self.exit)
 
-        layout.addWidget(victory)
+        layout.addLayout(hlayout)
         layout.addSpacing(20)
         layout.addWidget(restart)
         layout.addWidget(exit)
